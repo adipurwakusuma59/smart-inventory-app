@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px  # Alat grafik interaktif modern
+import plotly.express as px
 
-# 0. Setelan Halaman (Harus ditaruh paling atas)
-st.set_page_config(page_title="Smart Inventory", layout="wide", initial_sidebar_state="expanded")
+# 0. Setelan Halaman
+st.set_page_config(page_title="Global Smart Inventory", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS Tambahan untuk Mempercantik Tampilan ---
 st.markdown("""
     <style>
     .main {background-color: #f8f9fa;}
@@ -14,20 +13,49 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📦 Enterprise Smart Inventory & Forecaster")
-st.write("Sistem Pemantauan dan Prediksi Rantai Pasok Berbasis AI.")
+st.title("🌍 Global Enterprise Inventory System")
+st.write("Unggah data persediaan Anda dalam format apa pun. Sistem kami akan beradaptasi dengan data Anda.")
 
 # 1. Kotak Upload di Sidebar
-st.sidebar.header("📂 Masukkan Data Klien")
-file_unggahan = st.sidebar.file_uploader("Upload File Data Gudang (Format CSV)", type=["csv"])
+st.sidebar.header("📂 1. Unggah Data CSV")
+file_unggahan = st.sidebar.file_uploader("Pilih file CSV", type=["csv"])
 st.sidebar.markdown("---")
 
 if file_unggahan is not None:
-    tabel_inventory = pd.read_csv(file_unggahan)
-    kolom_wajib = ['Nama Barang', 'Stok Saat Ini', 'Batas Aman (ROP)', 'Penggunaan Harian']
+    tabel_mentah = pd.read_csv(file_unggahan)
+    kolom_csv = tabel_mentah.columns.tolist()
+
+    # 2. FITUR MAPPING: Membiarkan user mencocokkan kolom mereka
+    st.sidebar.header("⚙️ 2. Pemetaan Kolom (Mapping)")
+    st.sidebar.write("Cocokkan nama kolom di file Anda dengan sistem kami:")
     
-    if all(kolom in tabel_inventory.columns for kolom in kolom_wajib):
+    # Trik UI/UX: Mengganti underscore (_) menjadi spasi khusus untuk tampilan dropdown
+    format_tampilan = lambda nama: nama.replace('_', ' ')
+
+    # HANYA ADA 4 DROPDOWN INI (Sudah rapi):
+    col_nama = st.sidebar.selectbox("Mana kolom 'Nama Barang'?", kolom_csv, index=0, format_func=format_tampilan)
+    col_stok = st.sidebar.selectbox("Mana kolom 'Stok Saat Ini'?", kolom_csv, index=min(1, len(kolom_csv)-1), format_func=format_tampilan)
+    col_rop = st.sidebar.selectbox("Mana kolom 'Batas Aman (ROP)'?", kolom_csv, index=min(2, len(kolom_csv)-1), format_func=format_tampilan)
+    col_penggunaan = st.sidebar.selectbox("Mana kolom 'Penggunaan Harian'?", kolom_csv, index=min(3, len(kolom_csv)-1), format_func=format_tampilan)
+
+    # Tombol untuk memproses data setelah di-mapping
+    if st.sidebar.button("🚀 Proses Data Sekarang"):
         
+        # Menerjemahkan (Rename) kolom klien menjadi kolom standar sistem kita
+        tabel_inventory = tabel_mentah.rename(columns={
+            col_nama: 'Nama Barang',
+            col_stok: 'Stok Saat Ini',
+            col_rop: 'Batas Aman (ROP)',
+            col_penggunaan: 'Penggunaan Harian'
+        })
+        
+        # Pastikan kolom angka dibaca sebagai angka (mencegah error dari klien)
+        tabel_inventory['Stok Saat Ini'] = pd.to_numeric(tabel_inventory['Stok Saat Ini'], errors='coerce').fillna(0)
+        tabel_inventory['Batas Aman (ROP)'] = pd.to_numeric(tabel_inventory['Batas Aman (ROP)'], errors='coerce').fillna(0)
+        tabel_inventory['Penggunaan Harian'] = pd.to_numeric(tabel_inventory['Penggunaan Harian'], errors='coerce').fillna(1) # hindari bagi 0
+
+        st.success("✅ Pemetaan Berhasil! Data Anda sedang dianalisis...")
+
         # --- MESIN TEKNIK INDUSTRI ---
         tabel_inventory['Sisa Hari'] = (tabel_inventory['Stok Saat Ini'] / tabel_inventory['Penggunaan Harian']).round(1)
         tabel_inventory['Rekomendasi Waktu'] = np.where(
@@ -35,93 +63,51 @@ if file_unggahan is not None:
             np.where(tabel_inventory['Sisa Hari'] <= 14, '⚠️ WARNING (Siapkan PO)', '✅ AMAN')
         )
 
-        # --- MEMBUAT TABS (HALAMAN MENU) ---
-        tab1, tab2, tab3 = st.tabs(["📊 Ringkasan Eksekutif", "📈 Analisis Forecast", "🗄️ Database Mentah"])
+        # --- TAMPILAN DASHBOARD ---
+        tab1, tab2, tab3 = st.tabs(["📊 Ringkasan Eksekutif", "📈 Analisis Forecast", "🗄️ Database Terjemahan"])
 
-        # ==========================================
-        # TAB 1: RINGKASAN EKSEKUTIF (KPI & Status)
-        # ==========================================
         with tab1:
             st.subheader("Key Performance Indicators (KPI)")
             col1, col2, col3 = st.columns(3)
-            
             jumlah_kritis = len(tabel_inventory[tabel_inventory['Sisa Hari'] <= 7])
             rata_rata_hari = tabel_inventory['Sisa Hari'].mean().round(1)
 
             col1.metric("Total Jenis Barang", len(tabel_inventory), "Item aktif")
             col2.metric("Barang Status Kritis", jumlah_kritis, "- Butuh Perhatian!", delta_color="inverse")
             col3.metric("Rata-rata Ketahanan Stok", f"{rata_rata_hari} Hari")
-            
             st.markdown("---")
-            st.subheader("Peta Status Persediaan")
             
-            # Grafik Plotly: Bar Chart dengan Warna Otomatis berdasarkan Status
-            warna_status = {
-                '🚨 KRITIS (Pesan Sekarang)': '#ef553b', # Merah
-                '⚠️ WARNING (Siapkan PO)': '#feca28',   # Kuning
-                '✅ AMAN': '#00cc96'                     # Hijau
-            }
-            
-            fig_bar = px.bar(
-                tabel_inventory, 
-                x='Nama Barang', 
-                y='Stok Saat Ini', 
-                color='Rekomendasi Waktu',
-                color_discrete_map=warna_status,
-                text='Stok Saat Ini',
-                title="Perbandingan Stok Barang Berdasarkan Tingkat Urgensi"
-            )
+            warna_status = {'🚨 KRITIS (Pesan Sekarang)': '#ef553b', '⚠️ WARNING (Siapkan PO)': '#feca28', '✅ AMAN': '#00cc96'}
+            fig_bar = px.bar(tabel_inventory, x='Nama Barang', y='Stok Saat Ini', color='Rekomendasi Waktu', color_discrete_map=warna_status, text='Stok Saat Ini', title="Peta Status Persediaan")
             fig_bar.update_traces(textposition='outside')
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # ==========================================
-        # TAB 2: ANALISIS FORECAST (Prediksi Habis)
-        # ==========================================
         with tab2:
             st.subheader("Simulasi Penurunan Stok (30 Hari ke Depan)")
-            st.write("Grafik ini memprediksi bagaimana stok akan habis jika kecepatan produksi konstan.")
-            
-            # Membuat data simulasi 30 hari ke depan
             hari = np.arange(0, 31)
             df_forecast = pd.DataFrame({'Hari Ke-': hari})
-            
             for index, row in tabel_inventory.iterrows():
-                # Rumus: Stok = Stok Awal - (Penggunaan Harian * Hari). Tidak boleh minus (max 0).
                 df_forecast[row['Nama Barang']] = np.maximum(row['Stok Saat Ini'] - (row['Penggunaan Harian'] * hari), 0)
             
-            # Merapikan data untuk grafik (Melt)
             df_forecast_melted = df_forecast.melt(id_vars=['Hari Ke-'], var_name='Nama Barang', value_name='Prediksi Stok')
-            
-            # Grafik Plotly: Line Chart Interaktif
-            fig_line = px.line(
-                df_forecast_melted, 
-                x='Hari Ke-', 
-                y='Prediksi Stok', 
-                color='Nama Barang',
-                markers=True,
-                title="Forecast Burn-down Chart"
-            )
-            # Menambahkan garis batas ROP sebagai referensi
-            fig_line.add_hline(y=0, line_dash="solid", line_color="red", annotation_text="Stok Habis (0)")
+            fig_line = px.line(df_forecast_melted, x='Hari Ke-', y='Prediksi Stok', color='Nama Barang', markers=True, title="Forecast Burn-down Chart")
+            fig_line.add_hline(y=0, line_dash="solid", line_color="red")
             st.plotly_chart(fig_line, use_container_width=True)
 
-        # ==========================================
-        # TAB 3: DATABASE MENTAH
-        # ==========================================
         with tab3:
-            st.subheader("Tabel Data Inventaris Interaktif")
+            st.subheader("Tabel Data (Setelah Disesuaikan dengan Standar Sistem)")
+            st.dataframe(tabel_inventory, use_container_width=True)
             
-            # Filter Data
-            pilihan_status = st.selectbox("Saring berdasarkan status:", ["Semua Status"] + list(tabel_inventory['Rekomendasi Waktu'].unique()))
-            if pilihan_status != "Semua Status":
-                tabel_tampil = tabel_inventory[tabel_inventory['Rekomendasi Waktu'] == pilihan_status]
-            else:
-                tabel_tampil = tabel_inventory
-                
-            st.dataframe(tabel_tampil, use_container_width=True)
+            # --- FITUR BARU: Tombol Download ---
+            st.markdown("---")
+            csv_hasil = tabel_inventory.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Hasil Analisis (CSV)",
+                data=csv_hasil,
+                file_name="laporan_inventory_pintar.csv",
+                mime="text/csv"
+            )
 
-    else:
-        st.error("❌ Format file salah. Pastikan kolom sesuai template.")
 
 else:
     st.info("Sistem menunggu unggahan data. Silakan masukkan file CSV di panel kiri.")
