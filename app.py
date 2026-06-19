@@ -1,68 +1,127 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px  # Alat grafik interaktif modern
 
-# 0. Melebarkan tampilan halaman agar lebih lega
-st.set_page_config(layout="wide")
+# 0. Setelan Halaman (Harus ditaruh paling atas)
+st.set_page_config(page_title="Smart Inventory", layout="wide", initial_sidebar_state="expanded")
 
-# 1. Judul Aplikasi Web
-st.title("📦 Smart Inventory Tracker & Forecaster")
-st.write("Aplikasi pemantauan stok cerdas untuk efisiensi rantai pasok.")
+# --- CSS Tambahan untuk Mempercantik Tampilan ---
+st.markdown("""
+    <style>
+    .main {background-color: #f8f9fa;}
+    h1 {color: #1f77b4;}
+    </style>
+""", unsafe_allow_html=True)
 
-# 2. Menyiapkan Data 
-data_gudang = {
-    "Kode Barang": ["BRG-01", "BRG-02", "BRG-03", "BRG-04"],
-    "Nama Barang": ["Kain Katun", "Benang Jahit", "Kancing Baju", "Resleting"],
-    "Stok Saat Ini": [10237, 5923, 5009, 1002],
-    "Batas Aman (ROP)": [10238, 5924, 5009, 1002],
-    "Penggunaan Harian": [2000, 500, 100, 200]
-}
-tabel_inventory = pd.DataFrame(data_gudang)
+st.title("📦 Enterprise Smart Inventory & Forecaster")
+st.write("Sistem Pemantauan dan Prediksi Rantai Pasok Berbasis AI.")
 
-# 3. Logika Teknik Industri
-tabel_inventory['Sisa Hari'] = (tabel_inventory['Stok Saat Ini'] / tabel_inventory['Penggunaan Harian']).round(1)
-tabel_inventory['Rekomendasi Waktu'] = np.where(
-    tabel_inventory['Sisa Hari'] <= 7, '🚨 KRITIS: Pesan Hari Ini!',
-    np.where(tabel_inventory['Sisa Hari'] <= 14, '⚠️ WARNING: Siapkan Dokumen PO', '✅ Aman')
-)
+# 1. Kotak Upload di Sidebar
+st.sidebar.header("📂 Masukkan Data Klien")
+file_unggahan = st.sidebar.file_uploader("Upload File Data Gudang (Format CSV)", type=["csv"])
+st.sidebar.markdown("---")
 
-# ================= FITUR BARU MULAI DARI SINI =================
+if file_unggahan is not None:
+    tabel_inventory = pd.read_csv(file_unggahan)
+    kolom_wajib = ['Nama Barang', 'Stok Saat Ini', 'Batas Aman (ROP)', 'Penggunaan Harian']
+    
+    if all(kolom in tabel_inventory.columns for kolom in kolom_wajib):
+        
+        # --- MESIN TEKNIK INDUSTRI ---
+        tabel_inventory['Sisa Hari'] = (tabel_inventory['Stok Saat Ini'] / tabel_inventory['Penggunaan Harian']).round(1)
+        tabel_inventory['Rekomendasi Waktu'] = np.where(
+            tabel_inventory['Sisa Hari'] <= 7, '🚨 KRITIS (Pesan Sekarang)',
+            np.where(tabel_inventory['Sisa Hari'] <= 14, '⚠️ WARNING (Siapkan PO)', '✅ AMAN')
+        )
 
-# 4. Membuat Sidebar (Menu Samping) untuk Filter Interaktif
-st.sidebar.header("⚙️ Panel Kontrol")
-st.sidebar.write("Gunakan filter ini untuk menyaring data.")
+        # --- MEMBUAT TABS (HALAMAN MENU) ---
+        tab1, tab2, tab3 = st.tabs(["📊 Ringkasan Eksekutif", "📈 Analisis Forecast", "🗄️ Database Mentah"])
 
-# Membuat tombol pilihan (selectbox) di sidebar
-pilihan_status = st.sidebar.selectbox(
-    "Pilih Status Barang yang Ingin Dilihat:",
-    ("Semua Barang", "🚨 KRITIS: Pesan Hari Ini!", "⚠️ WARNING: Siapkan Dokumen PO", "✅ Aman")
-)
+        # ==========================================
+        # TAB 1: RINGKASAN EKSEKUTIF (KPI & Status)
+        # ==========================================
+        with tab1:
+            st.subheader("Key Performance Indicators (KPI)")
+            col1, col2, col3 = st.columns(3)
+            
+            jumlah_kritis = len(tabel_inventory[tabel_inventory['Sisa Hari'] <= 7])
+            rata_rata_hari = tabel_inventory['Sisa Hari'].mean().round(1)
 
-# Logika Filter: Jika user tidak memilih "Semua Barang", potong tabelnya!
-if pilihan_status != "Semua Barang":
-    tabel_inventory = tabel_inventory[tabel_inventory['Rekomendasi Waktu'] == pilihan_status]
+            col1.metric("Total Jenis Barang", len(tabel_inventory), "Item aktif")
+            col2.metric("Barang Status Kritis", jumlah_kritis, "- Butuh Perhatian!", delta_color="inverse")
+            col3.metric("Rata-rata Ketahanan Stok", f"{rata_rata_hari} Hari")
+            
+            st.markdown("---")
+            st.subheader("Peta Status Persediaan")
+            
+            # Grafik Plotly: Bar Chart dengan Warna Otomatis berdasarkan Status
+            warna_status = {
+                '🚨 KRITIS (Pesan Sekarang)': '#ef553b', # Merah
+                '⚠️ WARNING (Siapkan PO)': '#feca28',   # Kuning
+                '✅ AMAN': '#00cc96'                     # Hijau
+            }
+            
+            fig_bar = px.bar(
+                tabel_inventory, 
+                x='Nama Barang', 
+                y='Stok Saat Ini', 
+                color='Rekomendasi Waktu',
+                color_discrete_map=warna_status,
+                text='Stok Saat Ini',
+                title="Perbandingan Stok Barang Berdasarkan Tingkat Urgensi"
+            )
+            fig_bar.update_traces(textposition='outside')
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-# 5. Membuat Metrik KPI (Key Performance Indicator)
-st.markdown("---") # Membuat garis pembatas
-col1, col2, col3 = st.columns(3) # Membagi layar jadi 3 kolom
+        # ==========================================
+        # TAB 2: ANALISIS FORECAST (Prediksi Habis)
+        # ==========================================
+        with tab2:
+            st.subheader("Simulasi Penurunan Stok (30 Hari ke Depan)")
+            st.write("Grafik ini memprediksi bagaimana stok akan habis jika kecepatan produksi konstan.")
+            
+            # Membuat data simulasi 30 hari ke depan
+            hari = np.arange(0, 31)
+            df_forecast = pd.DataFrame({'Hari Ke-': hari})
+            
+            for index, row in tabel_inventory.iterrows():
+                # Rumus: Stok = Stok Awal - (Penggunaan Harian * Hari). Tidak boleh minus (max 0).
+                df_forecast[row['Nama Barang']] = np.maximum(row['Stok Saat Ini'] - (row['Penggunaan Harian'] * hari), 0)
+            
+            # Merapikan data untuk grafik (Melt)
+            df_forecast_melted = df_forecast.melt(id_vars=['Hari Ke-'], var_name='Nama Barang', value_name='Prediksi Stok')
+            
+            # Grafik Plotly: Line Chart Interaktif
+            fig_line = px.line(
+                df_forecast_melted, 
+                x='Hari Ke-', 
+                y='Prediksi Stok', 
+                color='Nama Barang',
+                markers=True,
+                title="Forecast Burn-down Chart"
+            )
+            # Menambahkan garis batas ROP sebagai referensi
+            fig_line.add_hline(y=0, line_dash="solid", line_color="red", annotation_text="Stok Habis (0)")
+            st.plotly_chart(fig_line, use_container_width=True)
 
-# Menghitung data untuk KPI
-jumlah_kritis = len(tabel_inventory[tabel_inventory['Sisa Hari'] <= 7])
-rata_rata_hari = tabel_inventory['Sisa Hari'].mean().round(1)
+        # ==========================================
+        # TAB 3: DATABASE MENTAH
+        # ==========================================
+        with tab3:
+            st.subheader("Tabel Data Inventaris Interaktif")
+            
+            # Filter Data
+            pilihan_status = st.selectbox("Saring berdasarkan status:", ["Semua Status"] + list(tabel_inventory['Rekomendasi Waktu'].unique()))
+            if pilihan_status != "Semua Status":
+                tabel_tampil = tabel_inventory[tabel_inventory['Rekomendasi Waktu'] == pilihan_status]
+            else:
+                tabel_tampil = tabel_inventory
+                
+            st.dataframe(tabel_tampil, use_container_width=True)
 
-# Menampilkan KPI
-col1.metric("Total Item Ditampilkan", len(tabel_inventory), "Jenis Barang")
-col2.metric("Total Barang Kritis", jumlah_kritis, "- Segera Tindak Lanjut!", delta_color="inverse")
-col3.metric("Rata-rata Ketahanan Stok", f"{rata_rata_hari} Hari")
-st.markdown("---")
+    else:
+        st.error("❌ Format file salah. Pastikan kolom sesuai template.")
 
-# ==============================================================
-
-# 6. Menampilkan ke Dashboard Interaktif
-st.subheader("📊 Data Persediaan Terkini")
-st.dataframe(tabel_inventory, use_container_width=True) 
-
-# 7. Menambahkan Grafik Interaktif
-st.subheader("📉 Visualisasi Sisa Hari (Run-out Time)")
-grafik_data = tabel_inventory.set_index('Nama Barang')['Sisa Hari']
-st.bar_chart(grafik_data)
+else:
+    st.info("Sistem menunggu unggahan data. Silakan masukkan file CSV di panel kiri.")
